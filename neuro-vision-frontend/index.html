@@ -105,6 +105,15 @@
        Confirm password
       </label>
       <input id="confirmPassword" placeholder="Re-enter your password" required="" type="password"/>
+      <label class="field-label" for="securityQuestion">Security question</label>
+      <select id="securityQuestion" required=""><option value="">Choose a security question</option>
+       <option>What was the name of your first pet?</option>
+       <option>What is your mother's maiden name?</option>
+       <option>What was the name of your primary school?</option>
+       <option>In which city were you born?</option>
+       <option>What is your favourite book?</option></select>
+      <label class="field-label" for="securityAnswer">Your answer</label>
+      <input autocomplete="off" id="securityAnswer" placeholder="Used to verify you if you forget your password" required="" type="text"/>
       <p aria-live="polite" class="form-message" id="registerMessage">
       </p>
       <button class="button button-auth" type="submit">
@@ -117,13 +126,18 @@
      <form class="auth-form hidden" id="resetForm">
       <label class="field-label" for="resetEmail">Registered email address</label>
       <input autocomplete="email" id="resetEmail" placeholder="name@example.com" required="" type="email"/>
-      <label class="field-label" for="resetPassword">New password</label>
-      <input autocomplete="new-password" id="resetPassword" placeholder="At least 6 characters" required="" type="password"/>
-      <small class="field-hint">Use at least 6 characters, one uppercase letter and one number.</small>
-      <label class="field-label" for="resetConfirm">Confirm new password</label>
-      <input autocomplete="new-password" id="resetConfirm" placeholder="Re-enter the new password" required="" type="password"/>
+      <button class="button button-outline" id="resetFindButton" type="button">Show my security question</button>
+      <div class="hidden" id="resetStep2">
+       <label class="field-label" id="resetQuestionText">Security question</label>
+       <input autocomplete="off" id="resetAnswer" placeholder="Your answer" type="text"/>
+       <label class="field-label" for="resetPassword">New password</label>
+       <input autocomplete="new-password" id="resetPassword" placeholder="At least 6 characters" type="password"/>
+       <small class="field-hint">Use at least 6 characters, one uppercase letter and one number.</small>
+       <label class="field-label" for="resetConfirm">Confirm new password</label>
+       <input autocomplete="new-password" id="resetConfirm" placeholder="Re-enter the new password" type="password"/>
+       <button class="button button-auth" type="submit">Reset password <span>&rarr;</span></button>
+      </div>
       <p aria-live="polite" class="form-message" id="resetMessage"></p>
-      <button class="button button-auth" type="submit">Reset password <span>&rarr;</span></button>
      </form>
      <div class="auth-switch">
       <span id="authSwitchText">

@@ -289,28 +289,56 @@ $("#forgotPassword").addEventListener("click", () => {
     showAuthMode("reset");
 });
 
-/* Password reset. Accounts are kept in this browser (there is no email service), so the reset
-   is done here: the registered email must exist on this device. */
+/* Password reset with a security question. The answer is stored only as a hash (like the password),
+   compared case-insensitively, and 3 wrong answers lock the reset until the page is reloaded. */
+function normalizeAnswer(text) {
+    return String(text || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+let resetAccountEmail = null;
+let resetFailedAttempts = 0;
+
+$("#resetFindButton").addEventListener("click", () => {
+    const email = $("#resetEmail").value.trim().toLowerCase();
+    const message = $("#resetMessage");
+    const account = readStoredAccounts().find((item) => item.email === email);
+    $("#resetStep2").classList.add("hidden");
+    resetAccountEmail = null;
+    if (!account) { message.textContent = "No account exists for this email on this device."; return; }
+    if (!account.securityQuestion) { message.textContent = "This account has no security question, so it cannot be reset. Please create a new account."; return; }
+    resetAccountEmail = email;
+    $("#resetQuestionText").textContent = account.securityQuestion;
+    $("#resetStep2").classList.remove("hidden");
+    message.textContent = "";
+});
+
 $("#resetForm").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const email = $("#resetEmail").value.trim().toLowerCase();
-    const password = $("#resetPassword").value;
-    const confirm = $("#resetConfirm").value;
     const message = $("#resetMessage");
+    if (!resetAccountEmail) { message.textContent = "Enter your email and choose “Show my security question” first."; return; }
+    if (resetFailedAttempts >= 3) { message.textContent = "Too many wrong answers. Reload the page to try again."; return; }
 
     const accounts = readStoredAccounts();
-    const account = accounts.find((item) => item.email === email);
-    if (!account) { message.textContent = "No account exists for this email on this device. Please create an account."; return; }
+    const account = accounts.find((item) => item.email === resetAccountEmail);
+    const password = $("#resetPassword").value;
+
+    if ((await hashPassword(normalizeAnswer($("#resetAnswer").value))) !== account.securityAnswerHash) {
+        resetFailedAttempts += 1;
+        message.textContent = `Incorrect answer. ${3 - resetFailedAttempts} attempt(s) left.`;
+        return;
+    }
     if (!/^(?=.*[A-Z])(?=.*[0-9])[A-Za-z0-9@$!%*?&]{6,}$/.test(password)) {
         message.textContent = "Use 6+ letters/numbers, including one uppercase letter and one number."; return;
     }
-    if (password !== confirm) { message.textContent = "The passwords do not match."; return; }
+    if (password !== $("#resetConfirm").value) { message.textContent = "The passwords do not match."; return; }
 
     account.passwordHash = await hashPassword(password);
     localStorage.setItem("neuroVisionAccounts", JSON.stringify(accounts));
     $("#resetForm").reset();
+    $("#resetStep2").classList.add("hidden");
+    resetAccountEmail = null;
+    resetFailedAttempts = 0;
     showAuthMode("login");
-    $("#loginEmail").value = email;
+    $("#loginEmail").value = account.email;
     $("#loginMessage").textContent = "Password updated. Please log in with your new password.";
 });
 
@@ -356,8 +384,15 @@ registerForm.addEventListener("submit", async (event) => {
     const email = $("#registerEmail").value.trim().toLowerCase();
     const password = $("#registerPassword").value;
     const confirmPassword = $("#confirmPassword").value;
+    const securityQuestion = $("#securityQuestion").value;
+    const securityAnswer = normalizeAnswer($("#securityAnswer").value);
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
     const passwordPattern = /^(?=.*[A-Z])(?=.*[0-9])[A-Za-z0-9@$!%*?&]{6,}$/;
+
+    if (!securityQuestion || securityAnswer.length < 2) {
+        $("#registerMessage").textContent = "Choose a security question and give an answer (it is needed to reset your password).";
+        return;
+    }
 
     if (!name || !email || !password || !confirmPassword) {
         $("#registerMessage").textContent = "Please complete all fields.";
@@ -392,6 +427,8 @@ registerForm.addEventListener("submit", async (event) => {
         name,
         email,
         passwordHash: await hashPassword(password),
+        securityQuestion,
+        securityAnswerHash: await hashPassword(securityAnswer),
         createdAt: new Date().toISOString()
     };
 
