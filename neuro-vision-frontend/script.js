@@ -1726,11 +1726,23 @@ async function saveCompletedAssessment() {
     };
 
     try {
+        // Geometry of the passage (needed for layout-neutral FIXATION_X/Y and line-return detection)
+        refreshWordRects();
+        const rects = readingWordRects.slice().sort((a, b) => a.index - b.index);
+        const vw = window.innerWidth, vh = window.innerHeight;
+        const left = Math.min(...rects.map((r) => r.left)), right = Math.max(...rects.map((r) => r.right));
+        const top = Math.min(...rects.map((r) => r.top)), bottom = Math.max(...rects.map((r) => r.bottom));
+        const textBox = rects.length && right > left ? { left: left / vw, top: top / vh, width: (right - left) / vw, height: (bottom - top) / vh } : null;
+        const wordLines = []; let lineNo = -1; let lastTop = null;
+        rects.forEach((r) => { if (lastTop === null || Math.abs(r.top - lastTop) > 10) { lineNo += 1; lastTop = r.top; } wordLines[r.index] = lineNo; });
+
         const analysis = NVAnalysis.analyse({
             samples,
             passageWords,
             transcript,
-            viewport: { width: window.innerWidth, height: window.innerHeight }
+            textBox,
+            wordLines,
+            viewport: { width: vw, height: vh }
         });
         session.features = analysis.features;
         session.analysis = buildCompactAnalysis(analysis);

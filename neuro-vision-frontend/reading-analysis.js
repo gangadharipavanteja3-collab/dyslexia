@@ -35,6 +35,12 @@
         VIEWING_DISTANCE_CM: 60,
         CSS_PIXEL_CM: 2.54 / 96,
         // Minimum evidence needed before features are trusted
+        // Webcam gaze is only accurate to roughly 1-2 words, so a one-word step back is as likely to be
+        // gaze jitter as a real regression. A regression must go back at least this many words.
+        MIN_REGRESSION_WORDS: 2,
+        // Layout-neutral FIXATION_X / Y: a gaze centroid offset by 10 % of the text block = 1 training SD
+        X_SD_PER_TEXT_WIDTH: 250,
+        Y_SD_PER_TEXT_HEIGHT: 140,
         MIN_WORD_FIXATIONS: 5,
         MIN_DISTINCT_WORDS: 3
     };
@@ -50,27 +56,27 @@
         { name: "FIXATION_DURATION", label: "Fixation duration", unit: "ms", decimals: 1,
           meaning: "How long the eyes stay relatively stable during one fixation.",
           formula: "SUM(d_i) / N_fix" },
-        { name: "FIXATION_X", label: "Fixation X", unit: "px (1280 x 1024 frame)", decimals: 1,
+        { name: "FIXATION_X", label: "Fixation X", unit: "px (training frame)", decimals: 1,
           meaning: "Average horizontal position of the gaze during fixations.",
-          formula: "(SUM(x_i) / N_fix) x 1280  (x_i = gaze x as fraction of window width)" },
-        { name: "FIXATION_Y", label: "Fixation Y", unit: "px (1280 x 1024 frame)", decimals: 1,
+          formula: "600.7 + 250 x (mean gaze x - text centre x) / text width   (position relative to the text block)" },
+        { name: "FIXATION_Y", label: "Fixation Y", unit: "px (training frame)", decimals: 1,
           meaning: "Average vertical position of the gaze during fixations.",
-          formula: "(SUM(y_i) / N_fix) x 1024" },
+          formula: "533.3 + 140 x (mean gaze y - text centre y) / text height" },
         { name: "FIRST_RUN_TOTAL_READING_TIME", label: "First-run total reading time", unit: "ms / word", decimals: 1,
           meaning: "Time spent on a word during the first reading pass only (the first time the eyes go through the text; the participant reads the passage once).",
           formula: "SUM over words of [sum of d_i in the FIRST visit to the word] / |W|" },
         { name: "SACCADE_AMPLITUDE", label: "Saccade amplitude", unit: "degrees", decimals: 2,
           meaning: "Size of the rapid eye movement from one fixation to the next.",
-          formula: "mean( 2 x atan( dist_px x 0.02646 / (2 x 60) ) ) in degrees, for consecutive fixations" },
+          formula: "mean( 2 x atan( dist_px x 0.02646 / (2 x 60) ) ) in degrees, for consecutive fixations on the SAME line (line-return sweeps excluded)" },
         { name: "REGRESSION_IN", label: "Regression in", unit: "proportion of words", decimals: 3,
           meaning: "Share of words that the eyes moved back INTO from a later word.",
-          formula: "|words entered from a later word| / |W|" },
+          formula: "|words entered by a backward move of >= 2 words| / |W|" },
         { name: "REGRESSION_OUT", label: "Regression out", unit: "proportion of words", decimals: 3,
           meaning: "Share of words from which the eyes moved backward to an earlier word, on the first visit (how far the reader moves back from the current location).",
-          formula: "|words whose first visit ended with a backward move| / |W|" },
+          formula: "|words whose first visit ended with a backward move of >= 2 words| / |W|" },
         { name: "REGRESSION_OUT_FULL", label: "Regression out (full)", unit: "proportion of words", decimals: 3,
           meaning: "Complete measure of outgoing backward movement: share of words left backwards on ANY visit.",
-          formula: "|words with at least one backward exit, any visit| / |W|  (always >= REGRESSION_OUT)" },
+          formula: "|words with at least one backward exit (>= 2 words), any visit| / |W|  (always >= REGRESSION_OUT)" },
         { name: "REGRESSION_PATH_DURATION", label: "Regression path duration", unit: "ms / word", decimals: 1,
           meaning: "Time from first arriving at a word until the eyes move to a word further right, including time spent re-reading earlier words.",
           formula: "SUM over words of [sum of d_i from first fixation on the word until a fixation on a later word] / |W|" },
@@ -243,6 +249,20 @@
         return (2 * Math.atan(cm / (2 * CONFIG.VIEWING_DISTANCE_CM)) * 180) / Math.PI;
     }
 
+    /* FIXATION_X / FIXATION_Y.
+       The training values barely vary (+-25 px / +-14 px): they describe where the gaze centroid sits relative
+       to the stimulus. On a different screen or layout the raw pixel position means nothing, so when the text
+       block is known the position is measured RELATIVE to the middle of the text and expressed around the
+       training mean (a 10 % shift of the text block = 1 training standard deviation). */
+    function fixationPosition(wordFix, axis, textBox) {
+        const meanValue = wordFix.reduce((a, f) => a + f[axis], 0) / wordFix.length;
+        if (textBox && textBox.width > 0 && textBox.height > 0) {
+            if (axis === "x") return 600.71 + ((meanValue - (textBox.left + textBox.width / 2)) / textBox.width) * CONFIG.X_SD_PER_TEXT_WIDTH;
+            return 533.32 + ((meanValue - (textBox.top + textBox.height / 2)) / textBox.height) * CONFIG.Y_SD_PER_TEXT_HEIGHT;
+        }
+        return meanValue * (axis === "x" ? CONFIG.REFERENCE_WIDTH_PX : CONFIG.REFERENCE_HEIGHT_PX);
+    }
+
     /* ---------- Main analysis ---------- */
     function analyse(input) {
         const passageWords = input.passageWords || [];
@@ -286,8 +306,8 @@
             const next = visits[vi + 1];
             const isFirst = !firstVisitDone.has(v.word);
             if (isFirst) { w.firstPassMs = v.dur; firstVisitDone.add(v.word); }
-            if (prev && prev.word > v.word) w.regIn = true;
-            if (next && next.word < v.word) {
+            if (prev && prev.word - v.word >= CONFIG.MIN_REGRESSION_WORDS) w.regIn = true;
+            if (next && v.word - next.word >= CONFIG.MIN_REGRESSION_WORDS) {
                 w.regOutFull = true;
                 if (isFirst) w.regOut = true;
             }
@@ -304,14 +324,21 @@
             wordStats[wi].pathMs = sum;
         });
 
-        /* saccades between consecutive word fixations */
+        /* saccades between consecutive word fixations.
+           Line-return sweeps (end of one line to the start of the next) are not reading saccades,
+           so they are excluded from the amplitude. */
+        const wordLines = input.wordLines || null;
         const saccades = [];
         for (let i = 1; i < wordFix.length; i += 1) {
-            const px = Math.hypot((wordFix[i].x - wordFix[i - 1].x) * viewport.width,
-                                  (wordFix[i].y - wordFix[i - 1].y) * viewport.height);
-            saccades.push({ from: wordFix[i - 1].word, to: wordFix[i].word, deg: degreesFromPixels(px),
-                            backward: wordFix[i].word < wordFix[i - 1].word });
+            const dyPx = Math.abs(wordFix[i].y - wordFix[i - 1].y) * viewport.height;
+            const px = Math.hypot((wordFix[i].x - wordFix[i - 1].x) * viewport.width, dyPx);
+            const sameLine = wordLines && wordLines[wordFix[i].word] !== undefined && wordLines[wordFix[i - 1].word] !== undefined
+                ? wordLines[wordFix[i].word] === wordLines[wordFix[i - 1].word]
+                : dyPx <= 25;
+            saccades.push({ from: wordFix[i - 1].word, to: wordFix[i].word, deg: degreesFromPixels(px), sameLine,
+                            backward: wordFix[i - 1].word - wordFix[i].word >= CONFIG.MIN_REGRESSION_WORDS });
         }
+        const readingSaccades = saccades.filter((sc) => sc.sameLine);
 
         const mean = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
         const nW = words.length;
@@ -338,10 +365,10 @@
             FIXATION_COUNT: wordFix.length / nW,
             TOTAL_READING_TIME: durations.reduce((a, b) => a + b, 0) / nW,
             FIXATION_DURATION: mean(durations),
-            FIXATION_X: mean(wordFix.map((f) => f.x)) * CONFIG.REFERENCE_WIDTH_PX,
-            FIXATION_Y: mean(wordFix.map((f) => f.y)) * CONFIG.REFERENCE_HEIGHT_PX,
+            FIXATION_X: fixationPosition(wordFix, "x", input.textBox),
+            FIXATION_Y: fixationPosition(wordFix, "y", input.textBox),
             FIRST_RUN_TOTAL_READING_TIME: mean(words.map((i) => wordStats[i].firstPassMs)),
-            SACCADE_AMPLITUDE: mean(saccades.map((s) => s.deg)),
+            SACCADE_AMPLITUDE: mean((readingSaccades.length ? readingSaccades : saccades).map((s) => s.deg)),
             REGRESSION_IN: words.filter((i) => wordStats[i].regIn).length / nW,
             REGRESSION_OUT: words.filter((i) => wordStats[i].regOut).length / nW,
             REGRESSION_OUT_FULL: words.filter((i) => wordStats[i].regOutFull).length / nW,

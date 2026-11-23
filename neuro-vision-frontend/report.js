@@ -27,9 +27,9 @@ function levelText(level) {
     return level === "LOW RISK" ? "NO RISK" : (level || "");
 }
 
-/* Diagnosis wording follows the risk level: MODERATE or HIGH risk = Dyslexia; NO risk = Normal. */
+/* Dyslexia is stated only when the reading pattern is strongly dyslexic-like (HIGH RISK). */
 function diagnosisText(p) {
-    return p && (p.risk_level === "MODERATE RISK" || p.risk_level === "HIGH RISK") ? "Dyslexia" : "Normal";
+    return p && p.risk_level === "HIGH RISK" ? "Dyslexia" : "Normal";
 }
 
 const REPORT_CONTACT = { phone: "+91 98765 43210", email: "support@neurovision.ai", web: "www.neurovision.ai" };
@@ -585,7 +585,7 @@ function reportSummaryText(record) {
     if (!p) return "The risk score could not be calculated for this session. Please complete the assessment again.";
     const score = fmtNumber(p.risk_probability, 2);
     if (p.risk_level === "HIGH RISK") return `Your assessment indicates a Dyslexia Risk Score of ${score}, which suggests a higher risk of developmental dyslexia. We recommend further evaluation and appropriate learning support.`;
-    if (p.risk_level === "MODERATE RISK") return `Your assessment indicates a Dyslexia Risk Score of ${score}, which suggests a moderate risk. We recommend keeping track of reading progress and considering a follow-up assessment.`;
+    if (p.risk_level === "MODERATE RISK") return `Your assessment indicates a Dyslexia Risk Score of ${score}, which is in the borderline range. This is not enough to indicate dyslexia, but we recommend keeping track of reading progress and repeating the assessment if you have concerns.`;
     return `Your assessment indicates a Dyslexia Risk Score of ${score}, which shows no significant signs of dyslexia in the reading and eye-movement patterns recorded. Keep up regular reading practice.`;
 }
 

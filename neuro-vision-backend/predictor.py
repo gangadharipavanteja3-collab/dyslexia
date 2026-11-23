@@ -22,9 +22,14 @@ SCALER_PATH = BASE_DIR / "neuro_vision_scaler.pkl"         # only exists if SVM 
 SVM_PATH = BASE_DIR / "svm_model.pkl"                      # OPTIONAL - see README to export it
 
 # --------------------------------------------------------------------------
-# Risk bands - copied from get_risk_level() in Dyslexia.ipynb
+# Risk bands.
+# The notebook used 35 / 65. The model was trained on research eye-tracker recordings, while this app
+# measures with a webcam, whose noisier values push scores up. To avoid false "dyslexic" results the bands
+# were adjusted: below 50 % the forest itself says "Normal"; "Dyslexic" is only reported at HIGH risk (>= 65 %).
+# On the notebook's own 59-person test set, >= 65 % flags 1 of 45 normal readers (2 %) and catches 6 of 14
+# dyslexic readers; >= 75 % would flag none but catch only 4 of 14. Change HIGH_RISK_FROM to tune this.
 # --------------------------------------------------------------------------
-LOW_RISK_BELOW = 35.0
+LOW_RISK_BELOW = 50.0
 HIGH_RISK_FROM = 65.0
 
 
@@ -215,7 +220,8 @@ class NeuroVisionModel:
 
         return {
             "model": "Random Forest",
-            "predicted_label": "Dyslexic" if predicted_class == 1 else "Normal",
+            "predicted_label": "Dyslexic" if risk_percent >= HIGH_RISK_FROM else "Normal",
+            "model_label": "Dyslexic" if predicted_class == 1 else "Normal",
             "risk_probability": round(p_dyslexia, 4),
             "risk_percentage": risk_percent,
             "risk_level": risk_level_from_score(risk_percent),
